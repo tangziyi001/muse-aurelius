@@ -38,31 +38,14 @@ def cormi(size, weight=300):
     except Exception: pass
     return f
 
-# 5 distinct lockscreen typography styles, one per slot, rotated by slot index
-# (2026-09-21 user feedback: time/date must vary visibly across slots within one
-# reel, and read smaller on Instagram). Each style: time/date font makers
-# (size, weight)->font, letter tracking, date case format.
-TYPO_STYLES = [
-    # 0: airy sans — Inter Light, wide tracking
-    dict(time=lambda s, w: inter(s, 300), date=lambda s, w: inter(s, 300),
-         time_tr=10, date_tr=3, date_fmt="title"),
-    # 1: hairline sans — Inter Thin 200, extra-wide tracking, uppercase date
-    dict(time=lambda s, w: inter(s, 200), date=lambda s, w: inter(s, 400),
-         time_tr=16, date_tr=7, date_fmt="upper"),
-    # 2: editorial serif — Cormorant Light time, Cormorant Italic date
-    dict(time=lambda s, w: corm(s), date=lambda s, w: cormi(s),
-         time_tr=2, date_tr=2, date_fmt="title"),
-    # 3: italic serif time + grotesk small-caps-style date
-    dict(time=lambda s, w: cormi(s), date=lambda s, w: inter(s, 500),
-         time_tr=2, date_tr=9, date_fmt="upper"),
-    # 4: confident grotesk — Inter Medium 500, tight tracking
-    dict(time=lambda s, w: inter(s, 500), date=lambda s, w: inter(s, 400),
-         time_tr=0, date_tr=4, date_fmt="title"),
-]
+# Single lockscreen typography style for the whole reel (2026-09-23 user
+# feedback: "don't change the date, just one format" — the per-slot font
+# rotation looked wrong/jarring). Inter Light, clean and iPhone-like.
+UI_STYLE = dict(time=lambda s, w: inter(s, 300), date=lambda s, w: inter(s, 300),
+                time_tr=10, date_tr=3, date_fmt="title")
 
-def fmt_date(style, now):
-    s = now.strftime("%A, %B") + " " + str(int(now.strftime("%d")))
-    return s.upper() if style["date_fmt"] == "upper" else s
+def fmt_date(now):
+    return now.strftime("%A, %B") + " " + str(int(now.strftime("%d")))
 
 def track_text(draw, xy, text, font, fill, tracking, anchor="m"):
     """Draw text centered at xy with letter tracking."""
@@ -157,15 +140,20 @@ def analyze_wallpaper(wk):
     return {"dark": dark, "time_y": best_y, "time_size": time_size,
             "color": color, "date_w": dw, "time_w": tw}
 
-def build_slot_ui(path, now, spec, slot_idx, clock="9:41"):
-    """Lockscreen UI tuned for one wallpaper: adapted color/weight/position,
-    plus per-slot typography style (rotated across the 5 slots)."""
-    style = TYPO_STYLES[slot_idx % len(TYPO_STYLES)]
+def build_slot_ui(path, now, spec, clock="9:41"):
+    """Per-slot lockscreen UI, baked onto the slot clip BEFORE the xfade chain,
+    so the date/time fades WITH the wallpaper (2026-09-23 pm user feedback:
+    previously published reels faded the date together with the wallpaper —
+    restore that). Single unified typography (UI_STYLE, "就一个格式"):
+    position/color are still adapted per wallpaper for readability, but the
+    font and date format never change between slots, so the crossfade never
+    ghosts two different fonts."""
+    style = UI_STYLE
     lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(lay)
     col = spec["color"] + (255,)
     ty = spec["time_y"]
-    date_str = fmt_date(style, now)
+    date_str = fmt_date(now)
     dt = track_text(d, (W/2, ty - 190), date_str, style["date"](44, spec["date_w"]), col, style["date_tr"])
     lay = Image.alpha_composite(lay, dt)
     ck = track_text(d, (W/2, ty), clock, style["time"](spec["time_size"], spec["time_w"]), col, style["time_tr"])
@@ -288,8 +276,12 @@ def best_music_window(mp3, slug, seg=14.5):
 
 def build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions):
     """Build the ffmpeg video-pass command (pure: no side effects, no ffmpeg run).
-    Returns (fc, offs, ui_start) where fc is the command list, offs the xfade
-    offsets, and ui_start the first transition midpoint.
+    Returns (fc, total_d) where fc is the command list and total_d the duration.
+    2026-09-23 (pm) redesign (user feedback): 0.8s xfade crossfades restored;
+    each slot's lockscreen UI is baked onto its clip BEFORE the xfade chain, so
+    the date/time fades WITH the wallpaper (like the originally published reels).
+    Typography stays a single unified style across slots (UI_STYLE, "就一个格式")
+    — no per-slot font rotation — so the crossfade never ghosts two fonts.
     Extracted 2026-09-23 for unit testing (user rule: code must have tests).
     """
     # ---- pass 1: video ----
@@ -299,6 +291,8 @@ def build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions):
     for i in range(n):
         inputs += ["-i", f"{tmp}/workbig_{i}.jpg"]
     inputs += ["-i", f"{tmp}/endbg.jpg"]
+    for i in range(n):
+        inputs += ["-i", f"{tmp}/ui_{i}.png"]
     # end_text: single frame + loop filter (deterministic frame count).
     # BUGFIX 2026-09-23: was "-loop 1 -t {END_D}" which is RACY with multiple
     # inputs (demuxer -t check vs loop timing) -> non-deterministic durations.
@@ -306,28 +300,14 @@ def build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions):
     inputs += ["-i", f"{tmp}/homebar.png",
                "-framerate", str(FPS),
                "-i", f"{tmp}/end_text.png"]
-    # UI video track inputs: ui_0..ui_{n-1}, single frames (loop filter below
-    # expands each to exactly its dwell; deterministic, no -loop 1 -t race).
-    # (2026-09-23 ghosting fix: slot UIs are NO LONGER pre-composited onto the
-    # raw slot clips. They are concatenated here and overlaid AFTER the xfade
-    # chain, so each transition midpoint hard-cuts between two slot UIs
-    # instead of crossfading two different fonts on top of each other.)
-    #
-    # BUGFIX 2026-09-23 (user: "date switch not synced with wallpaper"):
-    # "-loop 1 -framerate 30 -t {dwell}" image inputs are RACY when there are
-    # many inputs: the demuxer's -t cutoff vs loop timing yields
-    # non-deterministic frame counts (measured 66/54/66/54/60 instead of
-    # 60/60/60/60/60), shifting UI segment boundaries by up to 0.2s.
-    # Fix: feed single frames and expand with the loop filter (deterministic).
-    # Empirically, loop=loop=N-2:size=1 gives exactly N frames from 1 frame.
-    for i in range(n):
-        inputs += ["-framerate", str(FPS), "-i", f"{tmp}/ui_{i}.png"]
-    # input map: 0 motto, 1..n workbig, n+1 endbg, n+2 homebar, n+3 end_text,
-    #            n+4..2n+3 ui_0..ui_{n-1} (looped per-slot dwells)
+    # input map: 0 motto, 1..n workbig, n+1 endbg, n+2..2n+1 ui_0..ui_{n-1},
+    #            2n+2 homebar, 2n+3 end_text
     fc += inputs
     flt = []
     # v0 motto
     flt.append(f"[0:v]format=yuv420p,settb=AVTB,fps={FPS}[v0]")
+    for i in range(n):
+        flt.append(f"[{n+2+i}:v]format=rgba[u{i}]")
     vi = 1
     for i, m in enumerate(motions):
         fr = int(round(clip_ds[i] * FPS))          # zoompan frame count for this slot
@@ -340,21 +320,22 @@ def build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions):
             zp = (f"zoompan=z=1.07:x='(iw-iw/zoom)*on/{om}':y='(ih-ih/zoom)/2':"
                   f"d={fr}:s={W}x{H}:fps={FPS}")
         flt.append(f"[{vi}:v]{zp},format=yuv420p,settb=AVTB[raw{i}]")
-        # NOTE 2026-09-23: no per-slot UI pre-composite here anymore (was the
-        # ghosting bug). Raw slot clip goes to the xfade chain bare; the UI
-        # video track is overlaid after xfade completes (see below).
-        flt.append(f"[raw{i}]settb=AVTB[v{i+1}]")
+        # UI baked onto the slot clip BEFORE xfade: the whole frame (wallpaper
+        # + date/time) crossfades as one. The single-frame PNG is held by
+        # overlay's default eof_action=repeat.
+        flt.append(f"[raw{i}][u{i}]overlay=0:0:format=auto,format=yuv420p,settb=AVTB[v{i+1}]")
         vi += 1
     # end card
     flt.append(f"[{vi}:v]zoompan=z='1+0.035*on/98':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=99:s={W}x{H}:fps={FPS},format=yuv420p,settb=AVTB[eraw]")
-    flt.append(f"[{n+3}:v]format=rgba,loop=loop={end_frames-2}:size=1:start=0,"
+    flt.append(f"[{2*n+3}:v]format=rgba,loop=loop={end_frames-2}:size=1:start=0,"
                f"fade=t=in:st=0.9:d=0.7:alpha=1,settb=AVTB[etxt]")
     flt.append("[eraw][etxt]overlay=0:0:format=auto[etmp]")
-    flt.append(f"[etmp][{n+2}:v]overlay=0:0:format=auto,format=yuv420p,settb=AVTB[v{n+1}]")
+    flt.append(f"[etmp][{2*n+2}:v]overlay=0:0:format=auto,format=yuv420p,settb=AVTB[v{n+1}]")
     # normalize timebases + broadcast range before xfade
     for k in range(n + 2):
         flt.append(f"[v{k}]settb=AVTB,fps={FPS},scale=out_range=mpeg,format=yuv420p[vn{k}]")
-    # xfade chain: vn0..vn{n+1} (n+2 clips), offsets; total = MOTTO_D + sum(dwells) + END_D - XF
+    # xfade chain: vn0..vn{n+1} (n+2 clips), offsets;
+    # total = MOTTO_D + sum(dwells) + END_D - XF = 14.5
     offs = [MOTTO_D - XF]
     acc = MOTTO_D - XF
     for d in dwells:
@@ -366,32 +347,13 @@ def build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions):
         out = f"x{k}" if k < n else "vout"
         flt.append(f"[{cur}][{nxt}]xfade=transition=fade:duration={XF}:offset={offs[k]:.4f}[{out}]")
         cur = out
-    # UI video track: concat the per-slot held UIs (each exactly its dwell),
-    # then overlay onto the finished xfade timeline with hard cuts at the
-    # transition midpoints. ui_i is visible on output
-    # [offs[i]+XF/2, offs[i+1]+XF/2), i.e. between consecutive midpoints.
-    # eof_action=pass keeps the end card clean after the UI track ends.
-    #
-    # BUGFIX 2026-09-23 (user: "date switch not synced with wallpaper"):
-    # the overlay filter's framesync consumes the secondary (UI) input from
-    # t=0 even while enable=0, so without a delay the whole UI timeline ran
-    # ui_start seconds EARLY (date changed ~1.6s before the wallpaper
-    # transition started). setpts delays the UI track so uiv local t=0
-    # aligns with the first transition midpoint on the output timeline.
-    for i in range(n):
-        ui_frames = int(round(dwells[i] * FPS))
-        flt.append(f"[{n+4+i}:v]format=rgba,loop=loop={ui_frames-2}:size=1:start=0,"
-                   f"settb=AVTB[uu{i}]")
-    flt.append("".join(f"[uu{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=0[uiv]")
-    ui_start = offs[0] + XF / 2  # first transition midpoint = 1.6
-    flt.append(f"[uiv]setpts=PTS+{ui_start:.4f}/TB[uivd]")
-    flt.append(f"[vout][uivd]overlay=x=0:y=0:format=auto:eof_action=pass:"
-               f"enable='gte(t,{ui_start:.4f})',format=yuv420p,settb=AVTB[vfinal]")
-    fc += ["-filter_complex", ";".join(flt), "-map", "[vfinal]", "-t", "14.5",
+    total_d = MOTTO_D + sum(dwells) + END_D - XF
+    fc += ["-filter_complex", ";".join(flt), "-map", "[vout]", "-t", f"{total_d:.1f}",
            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-color_range", "mpeg",
            "-b:v", "1400k", "-maxrate", "1800k", "-bufsize", "3600k",
            "-preset", "medium", "-r", str(FPS), f"{tmp}/video.mp4"]
-    return fc, offs, ui_start
+    return fc, total_d
+
 
 
 def build(cfg):
@@ -405,6 +367,7 @@ def build(cfg):
     clock = cfg.get("clock_time", "9:41")
 
     works = []
+    specs = []
     for idx, im in enumerate(cfg["images"]):
         wk = prep_work(im["src"], im.get("anchor", "center"))
         spec = analyze_wallpaper(wk)
@@ -414,9 +377,15 @@ def build(cfg):
         wk.resize((W, H), Image.LANCZOS).save(p, quality=95)
         wk.save(f"{tmp}/workbig_{idx}.jpg", quality=94)
         works.append(p)
-        build_slot_ui(f"{tmp}/ui_{idx}.png", now, spec, idx, clock)
+        specs.append(spec)
 
     n = len(cfg["images"])
+    # Per-slot UI, baked onto each slot clip before xfade (2026-09-23 pm:
+    # date fades WITH the wallpaper). Unified format via UI_STYLE; only
+    # position/color adapt per wallpaper.
+    for idx, spec in enumerate(specs):
+        build_slot_ui(f"{tmp}/ui_{idx}.png", now, spec, clock)
+
     # per-slot dwell (visible seconds); sum must be 10.0 so total stays 14.5s
     # (= MOTTO_D + END_D - XF budget: 2.0 + 3.3 - 0.8)
     dwells = cfg.get("slot_dwells") or [10.0 / n] * n
@@ -434,7 +403,7 @@ def build(cfg):
     # ---- pass 1: video (command built by testable pure function) ----
     motions = cfg.get("motion", ["zin", "zout", "pan", "zin", "zin"])
     motions = [motions[i % len(motions)] for i in range(n)]
-    fc, offs, ui_start = build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions)
+    fc, total_d = build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions)
     run(fc)
 
     # ---- pass 2: audio + mux ----
@@ -452,16 +421,23 @@ def build(cfg):
             start = best_music_window(music, slug)
             cfg["music_start"] = start
         print(f"[{slug}] music start={start}s date='{date_str}'", flush=True)
+        total_s = f"{total_d:.1f}"
+        fade_out_st = f"{total_d - 0.5:.1f}"
+        # NOTE 2026-09-23 (pm): explicit output -t instead of -shortest.
+        # -shortest silently truncated the video when the music ran short
+        # (that's how 15.3s targets shipped as 14.5s files). Output is now
+        # always exactly total_d, regardless of audio length.
         run(["ffmpeg", "-y", "-v", "error", "-i", f"{tmp}/video.mp4",
-             "-ss", f"{start}", "-t", "14.5", "-i", music,
-             "-filter_complex", "[1:a]afade=t=in:st=0:d=0.5,afade=t=out:st=14.0:d=0.5[aout]",
+             "-ss", f"{start}", "-t", total_s, "-i", music,
+             "-filter_complex", f"[1:a]afade=t=in:st=0:d=0.5,afade=t=out:st={fade_out_st}:d=0.5[aout]",
              "-map", "0:v", "-map", "[aout]", "-c:v", "copy",
              "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
-             "-movflags", "+faststart", "-shortest",
+             "-t", total_s,
+             "-movflags", "+faststart",
              os.path.join(outdir, "reel.mp4")])
     print(f"[{slug}] DONE", flush=True)
 
-    # cover: middle slot still with its own tuned UI
+    # cover: middle slot with its own baked UI
     cover = Image.open(works[2]).convert("RGBA")
     cover = Image.alpha_composite(cover, Image.open(f"{tmp}/ui_2.png"))
     cover.convert("RGB").save(os.path.join(outdir, "cover.jpg"), quality=92)
