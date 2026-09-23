@@ -24,7 +24,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cdp import launch, nap, wait_for_js
 
-EMAIL = "" + os.environ.get("ETSY_EMAIL", "") + ""
+EMAIL = os.environ.get("ETSY_EMAIL", "")
 SHOTS = "/config/etsy-browser/shots"
 SECRETS_DIR = "/config/etsy-browser/secrets"
 SECRETS_FILE = os.path.join(SECRETS_DIR, "etsy_api.json")
