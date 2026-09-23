@@ -147,3 +147,14 @@ No wallpaper image reused across reels within a batch (clean A/B).
   inputs (race regression), loop filter counts, xfade offset math, ui_start,
   filtergraph structure (concat→setpts order, eof_action=pass). Run tests
   before any render_reel.py change.
+
+- 2026-09-23: creative redesign (user feedback on second-wave drafts).
+  Two changes: (1) SINGLE static lockscreen UI for the whole reel — the
+  per-slot font rotation (5 typography styles) looked wrong/jarring when the
+  font visibly changed between wallpapers. Now one Inter Light style, one
+  date, no changes. (2) HARD CUTS between wallpaper slots — the 0.8s
+  crossfades looked bad (muddy mid-fade). xfade chain replaced with concat.
+  Total duration now 15.3s (2.0 motto + 10.0 wallpapers + 3.3 end card, no XF
+  subtraction). `build_video_cmd` returns (fc, total_d). Tests rewritten:
+  12 tests covering no-xfade, concat hard cuts, single ui.png, static UI
+  enable window [MOTTO_D, MOTTO_D+sum(dwells)).
