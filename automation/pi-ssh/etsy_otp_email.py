@@ -13,7 +13,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cdp import launch, nap, wait_for_js
 
-EMAIL = "" + os.environ.get("ETSY_EMAIL", "") + ""
+EMAIL = os.environ.get("ETSY_EMAIL", "")
 SHOTS = "/config/etsy-browser/shots"
 OTP_FILE = os.path.join(SHOTS, "otp_code.txt")
 RESULT = os.path.join(SHOTS, "otp_login_result.json")
