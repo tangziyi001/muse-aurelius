@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+*.egg-info/
+
+# Secrets - NEVER commit these
+.env
+.env.local
+*.pem
+*.key
+credentials.json
+*secret*.json
+.pending_*.json
+
+# Operational state (not code)
+publish_state*.json
+*_costs.json
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
