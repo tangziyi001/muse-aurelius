@@ -66,7 +66,7 @@
   "skills/github/bin/gh_push_simple.py": "eeeaae55dbe216dd4146d30046c7305eb1bbcc11b12629dc87d35ae9a5439dd1",
   "skills/github/bin/gh_sync.py": "d03ca29d66a01c7727996818fc4307de008d1f25d0bd0e8dec664051b7cf5d7d",
   "skills/github/bin/test_gh_sync.py": "0d6abf7e75318ef39cc5bd134c8c559dc02c2c6d9bda2517181a6ff927e77dfa",
-  "skills/github/hidden_files/.gh_sync_state.json": "62321e6218ace3746e9c0f7d8fc2441ce6a7475ff1cbfb7d3f28efc94b69a1f0",
+  "skills/github/hidden_files/.gh_sync_state.json": "efacf74b202013d783edcbb99e2b5f53a3365fbafd9b1b0e49dc8086998f2d6f",
   "skills/instagram-automation/SKILL.md": "0dabc529b927f77908d938c24d76ff251457ccbf7aca7d3c7f4be5003037e018",
   "skills/live-wallpaper-pipeline/SKILL.md": "be7a43b96a29b1c22ae56e298bf4cab053ed9f62927d1662cb57dfed60df2f44",
   "skills/live-wallpaper-pipeline/bin/build_livephoto_pair.py": "6f4b76f93a6ce7d85729d1eb2d2f87f18e93c21ecebb5f685467b89eca77ab46",
