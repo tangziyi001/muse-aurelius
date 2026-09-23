@@ -6,7 +6,7 @@ description: "Operate the ZenPixelWalls brand Instagram account (zen.pixel.walls
 # Instagram Automation (ZenPixelWalls)
 
 ## Purpose
-Run the `zen.pixel.walls` brand account end-to-end from the CLI: profile maintenance, scheduled publishing, and performance monitoring. Never touch the personal account `<personal-account>`.
+Run the `zen.pixel.walls` brand account end-to-end from the CLI: profile maintenance, scheduled publishing, and performance monitoring. Never touch the personal account `tangziyi001`.
 
 ## Tooling
 CLI: `instagram-cli <target> --account-id 17841421372905519 [options]`
@@ -20,7 +20,7 @@ Setup baseline: `~/workspace/instagram-setup/baseline-2026-09-20.json`.
 - Write commands (`set-profile-picture`, `update-bio`, `post-*`) require a transient user confirmation; the runtime auto-approves per standing approval, surfaced as `userConfirmationStatus: approved`. If a write fails with a grant error, wait ~60s and retry once — do not hammer.
 
 ## Operating Rules
-1. **Account scoping**: always pass `--account-id 17841421372905519` (zen.pixel.walls). Never run writes against `<personal-account>`.
+1. **Account scoping**: always pass `--account-id 17841421372905519` (zen.pixel.walls). Never run writes against `tangziyi001`.
 2. **No posting without explicit approval**: `post-story --draft` renders locally without uploading — always show the draft render to the user and get confirmation before the real post. Never pass `--retries` to any `post-*` command (duplicate risk).
 3. **Media must live under `~/workspace/`** — never publish from `/tmp`. Feed images: 4:5 @ 1080x1350 preferred. Reels/stories: 9:16 @ 1080x1920, MP4 needs a matching JPG/PNG cover.
 4. **Bio ≤ 150 chars.** Current bio (2026-09-20): `AI phone wallpapers · 4K Ultra HD 📱 New designs weekly ✨ Shop on Etsy 👇 etsy.com/shop/ZenPixelWalls`. Etsy URL verified via Etsy API (`https://www.etsy.com/shop/ZenPixelWalls`) — never guess it.
