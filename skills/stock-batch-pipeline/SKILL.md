@@ -57,7 +57,22 @@ per-batch outputs in `batch-NN/`.
      keywords/category per `dreamstime-meta.csv` → submit for review.
      Resubmit flow (refused files): re-upload same file + associate from the
      refused item's Resubmit action (FTP cannot resubmit).
-   - 123RF: upload → fill title/desc/keywords per `metaNN.json` → submit.
+     Portal automation (2026-09-24 proven): title `#title`, description
+     `#description`, keywords via `jQuery('#keywords').importTags(csv)` (DO
+     NOT click old tag remove links — they navigate away). AI checkbox
+     `#js-af_ai_contributor` (Generative AI category default). Save via
+     `#js-savededits` (click inner button coords). Submit via "Submit
+     commercial" text (re-read coords after scroll). Verify in Under review
+     tab (JS pager: `input.changepage` + Enter). Scripts:
+     `/config/pi-browser/dt_b05_batch*.py` (to be formalized).
+   - 123RF: FTP to `AI images` dir → portal: Upload content → AI Images →
+     "Upload via FTP" → Upload Queue → "Refresh FTP" → "Proceed" (tick
+     agreement) → files appear in Draft → fill title/desc/keywords per
+     `metaNN.json` → submit. **FTP alone is NOT enough** — the portal
+     "Upload via FTP" claim step is mandatory (2026-09-24 lesson).
+     Verify via API: `GET /apicore-contributors/review_images?page=1&limit=100&status=all&content_type=image_ai`
+     (returns filename, oldFilename, approval.category). Monitor script:
+     `/config/123rf-browser/rf_b05_monitor.py`.
      Verify PENDING count in portal after submit.
    - Verify EVERY file shows in-review/pending in the portal before calling
      it done. Never delete staged files. Never trigger email verification.
