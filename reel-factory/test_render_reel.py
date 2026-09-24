@@ -245,3 +245,28 @@ class TestAnalyzeWallpaperBand:
         from PIL import Image as PILImage
         spec = render_reel.analyze_wallpaper(PILImage.new("RGB", (1620, 2880), (0,0,0)))
         assert set(spec.keys()) == {"dark", "color"}
+
+
+class TestRenderDateOverride:
+    """REEL_DATE env (YYYY-MM-DD) pins the lockscreen date for scheduled
+    renders; unset -> render-time date. Lets a night-before render show the
+    posting day's date."""
+
+    def test_env_override_parses_and_formats(self, monkeypatch):
+        monkeypatch.setenv("REEL_DATE", "2026-09-25")
+        d = render_reel.get_render_date()
+        assert (d.year, d.month, d.day) == (2026, 9, 25)
+        assert render_reel.fmt_date(d) == "Friday, September 25"
+
+    def test_env_override_bad_value_raises(self, monkeypatch):
+        monkeypatch.setenv("REEL_DATE", "not-a-date")
+        with pytest.raises(ValueError):
+            render_reel.get_render_date()
+
+    def test_default_is_render_time(self, monkeypatch):
+        monkeypatch.delenv("REEL_DATE", raising=False)
+        d = render_reel.get_render_date()
+        import datetime as _dt
+        now = _dt.datetime.now()
+        assert isinstance(d, _dt.datetime)
+        assert (d.year, d.month, d.day) == (now.year, now.month, now.day)
