@@ -102,6 +102,21 @@ No wallpaper image reused across reels within a batch (clean A/B).
   per-slot font rotation preserved. Backup of the old
   renderer: render_reel.py.bak-20260923. Rule: never bake overlay graphics
   into clips that go through a crossfade — composite them after.
+- 2026-09-23 (pm): ghosting bug REINTRODUCED then RE-FIXED the same day.
+  After the user asked to "加回渐变" (restore fades) + "就一个格式" (one font
+  format), the renderer was changed to bake the per-slot UI onto slot clips
+  BEFORE xfade — violating the rule above. Result: mid-fade frames showed the
+  date/clock DOUBLED at two different positions (per-wallpaper adapted
+  geometry), which the user rejected ("还没渐变" — it reads as broken, not as
+  a fade). Lesson: "date fades WITH the wallpaper" must be implemented as
+  xfade-on-bare-wallpapers + UI track overlaid after (hard cuts at midpoints),
+  NEVER as bake-before-xfade — even when the font is unified, per-slot
+  position/size differences still ghost. The correct final architecture:
+  0.8s xfade on bare clips + single Inter Light UI_STYLE for all slots +
+  UI track (loop filter -> concat -> setpts delay -> overlay eof_action=pass).
+  Regression tests in test_render_reel.py (21 tests) pin this: no
+  [raw{i}][u{i}]overlay in the filtergraph, UI inputs are single frames,
+  concat->setpts order, ui_start == offs[0]+XF/2.
 - 2026-09-23: UI-track sync bug FIXED (user caught it: "date switch not synced
   with wallpaper"). Root cause: overlay's framesync consumes the secondary
   (UI) input from t=0 even while enable='gte(t,1.6)' is false, so the whole UI
@@ -158,3 +173,33 @@ No wallpaper image reused across reels within a batch (clean A/B).
   subtraction). `build_video_cmd` returns (fc, total_d). Tests rewritten:
   12 tests covering no-xfade, concat hard cuts, single ui.png, static UI
   enable window [MOTTO_D, MOTTO_D+sum(dwells)).
+- 2026-09-23 (v3, AUTHORITATIVE — supersedes all UI/xfade entries above).
+  User rejected v2 ("日期没渐变，卡点也不对，日期的切换完全random"):
+  the post-xfade UI track with hard cuts at transition midpoints made the
+  date POP mid-dissolve while the wallpaper was still fading — deterministic
+  in code (frame diff 37-45 exactly at midpoints) but perceived as random/
+  unsynced. Root-cause insight: v1's ghosting ("还没渐变") came from
+  PER-SLOT ADAPTED UI GEOMETRY (different time_y/size/position per
+  wallpaper) baked before xfade — not from baking itself. Final architecture:
+  bake the UI onto each slot clip BEFORE the xfade chain
+  ([raw{i}][ui_i]overlay -> xfade), with ONE FIXED geometry for all slots
+  (UI_TIME_Y/UI_DATE_Y/UI_TIME_SIZE/UI_DATE_SIZE + single UI_STYLE font —
+  user: "就一个格式"); only the text color adapts to wallpaper brightness
+  for readability. Identical geometry => mid-fade the date either holds
+  perfectly still (same color both sides) or crossfades cleanly in place —
+  it can never jump position or double up. The date goes through the same
+  0.8s fade as the wallpaper ("日期跟着壁纸一起渐变"); the 卡点 IS the
+  transition, synced by construction. No post-xfade UI track, no ui_start,
+  no enable/setpts/eof_action UI overlay. build_video_cmd returns (fc, offs).
+  Tests rewritten (18 tests): UI bake present before first xfade, no v2 UI
+  track remnants, byte-identical UI layout across colors, fixed geometry
+  constants. Verified on dark-beings: date-region frame diff 0.4-0.9 across
+  the transition (was 37-45), contact sheet shows the date locked while the
+  wallpaper dissolves behind it, and the date fades in with the wallpaper on
+  motto->slot0.
+- 2026-09-23 (v3 color-detection fix). Text color is decided from the two
+  tight bands the text actually occupies (work coords: date y 380-500, clock
+  y 620-830, x 270-1350), using the BRIGHTER of the two: either bright
+  (>0.52) => dark-gray text (28,28,28), else white. Never use the old top-60%
+  average (misclassified a bright dome as dark => white text washed out on
+  chrome-noir slot 3). 22 tests incl. brighter-of-two-bands regression.
