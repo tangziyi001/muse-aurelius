@@ -112,51 +112,53 @@ def apply_scrim(work, strength=0.42):
     return Image.composite(black, work, scrim).convert("RGB")
 
 def analyze_wallpaper(wk):
-    """Per-slot typography spec from the wallpaper itself (2026-09-21 user feedback:
-    date/time must feel designed for each wallpaper, not stamped on).
-    Returns dict(dark, time_y, time_size, color, date_w, time_w).
-    - dark: white text (+dark scrim baked separately); light: dark text, no scrim.
-    - time_y: vertical center of the clock, snapped to the calmest horizontal band
-      (low edge energy + low luminance variance) in the upper region.
-    - time_size shrinks slightly on very busy wallpapers."""
-    top = wk.crop((0, 0, WW, int(WH * 0.60))).convert("L")
-    lum = ImageStat.Stat(top).mean[0] / 255.0
+    """UI text color from the wallpaper's brightness in the FIXED UI band.
+    v3: the lockscreen UI geometry is identical on every slot ("就一个格式":
+    UI_DATE_Y/UI_TIME_Y fixed), so readability is decided by the two tight
+    bands the text actually occupies (work coords). The date (small text)
+    needs contrast most; the clock band can differ (e.g. bright dome behind
+    the date, darker behind the clock), so the decision uses the BRIGHTER of
+    the two — if either is bright, the whole UI goes dark for readability.
+    Returns dict(dark, color): dark band -> white text, else dark text.
+    """
+    date_band = wk.crop((270, 380, 1350, 500)).convert("L")
+    clock_band = wk.crop((270, 620, 1350, 830)).convert("L")
+    lum = max(ImageStat.Stat(date_band).mean[0],
+              ImageStat.Stat(clock_band).mean[0]) / 255.0
     dark = lum <= 0.52
-    small = wk.convert("L").resize((270, 480), Image.LANCZOS)
-    edges = small.filter(ImageFilter.FIND_EDGES)
-    best_y, best_score = 640, None
-    for yc in range(400, 801, 40):  # candidate clock centers, output coords
-        y0 = max(0, int((yc - 210) / 4)); y1 = min(480, int((yc + 210) / 4))
-        e = ImageStat.Stat(edges.crop((40, y0, 230, y1))).mean[0]
-        v = ImageStat.Stat(small.crop((40, y0, 230, y1))).stddev[0]
-        score = e + v * 0.6
-        if best_score is None or score < best_score:
-            best_score, best_y = score, yc
-    time_size = 190 if best_score < 28 else 168
-    if dark:
-        color, dw, tw = (255, 255, 255), 300, 300
-    else:
-        color, dw, tw = (28, 28, 28), 500, 500
-    return {"dark": dark, "time_y": best_y, "time_size": time_size,
-            "color": color, "date_w": dw, "time_w": tw}
+    color = (255, 255, 255) if dark else (28, 28, 28)
+    return {"dark": dark, "color": color}
 
-def build_slot_ui(path, now, spec, clock="9:41"):
-    """Per-slot lockscreen UI, baked onto the slot clip BEFORE the xfade chain,
-    so the date/time fades WITH the wallpaper (2026-09-23 pm user feedback:
-    previously published reels faded the date together with the wallpaper —
-    restore that). Single unified typography (UI_STYLE, "就一个格式"):
-    position/color are still adapted per wallpaper for readability, but the
-    font and date format never change between slots, so the crossfade never
-    ghosts two different fonts."""
+# Fixed lockscreen UI geometry — "就一个格式" (user 2026-09-23):
+# identical position/size/font on EVERY slot so the date can never jump or
+# double mid-fade. Only the text color adapts to wallpaper brightness
+# (readability; never complained about). The UI is baked onto each slot
+# clip BEFORE the xfade chain, so the date crossfades WITH the wallpaper —
+# the 卡点 is the transition itself, synced by construction
+# (user 2026-09-23 v2 verdict: "日期没渐变，卡点也不对，日期的切换完全random").
+UI_TIME_Y = 480
+UI_TIME_SIZE = 180
+UI_DATE_Y = UI_TIME_Y - 190
+UI_DATE_SIZE = 44
+
+def build_lock_ui(path, now, color, clock="9:41"):
+    """Single-format lockscreen UI frame (fixed geometry for all slots).
+
+    Baked onto each slot clip BEFORE the xfade chain: the date goes through
+    the same 0.8s crossfade as the wallpaper ("日期跟着壁纸一起渐变").
+    Geometry (position/size/font) is byte-identical on every slot — only
+    `color` (white/dark) adapts for readability — so mid-fade the date
+    either stays put (same color) or cleanly crossfades in place
+    (different color). It can never jump position or double up.
+    """
     style = UI_STYLE
     lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(lay)
-    col = spec["color"] + (255,)
-    ty = spec["time_y"]
+    col = color + (255,)
     date_str = fmt_date(now)
-    dt = track_text(d, (W/2, ty - 190), date_str, style["date"](44, spec["date_w"]), col, style["date_tr"])
+    dt = track_text(d, (W/2, UI_DATE_Y), date_str, style["date"](UI_DATE_SIZE, 300), col, style["date_tr"])
     lay = Image.alpha_composite(lay, dt)
-    ck = track_text(d, (W/2, ty), clock, style["time"](spec["time_size"], spec["time_w"]), col, style["time_tr"])
+    ck = track_text(d, (W/2, UI_TIME_Y), clock, style["time"](UI_TIME_SIZE, 300), col, style["time_tr"])
     lay = Image.alpha_composite(lay, ck)
     lay = Image.alpha_composite(lay, home_bar(fill=col))
     lay.save(path)
@@ -276,12 +278,15 @@ def best_music_window(mp3, slug, seg=14.5):
 
 def build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions):
     """Build the ffmpeg video-pass command (pure: no side effects, no ffmpeg run).
-    Returns (fc, total_d) where fc is the command list and total_d the duration.
-    2026-09-23 (pm) redesign (user feedback): 0.8s xfade crossfades restored;
-    each slot's lockscreen UI is baked onto its clip BEFORE the xfade chain, so
-    the date/time fades WITH the wallpaper (like the originally published reels).
-    Typography stays a single unified style across slots (UI_STYLE, "就一个格式")
-    — no per-slot font rotation — so the crossfade never ghosts two fonts.
+    Returns (fc, offs): command list and xfade offsets.
+    Architecture v3 (2026-09-23, user verdict on v2: "日期没渐变，卡点也不对，
+    日期的切换完全random"):
+    - The lockscreen UI (fixed geometry, "就一个格式") is baked onto each slot
+      clip BEFORE the xfade chain: [raw{i}][ui_i]overlay -> xfade. The date
+      crossfades WITH the wallpaper through the same 0.8s fade — the 卡点 is
+      the transition itself, synced by construction. No post-xfade UI track,
+      no hard cuts at midpoints (v2), no positional ghosting (v1: per-slot
+      adapted positions baked before xfade, user: "还没渐变").
     Extracted 2026-09-23 for unit testing (user rule: code must have tests).
     """
     # ---- pass 1: video ----
@@ -291,8 +296,10 @@ def build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions):
     for i in range(n):
         inputs += ["-i", f"{tmp}/workbig_{i}.jpg"]
     inputs += ["-i", f"{tmp}/endbg.jpg"]
+    # per-slot UI frames (single PNGs; identical geometry, color may adapt
+    # for readability). Baked onto slot clips below — NOT a post-xfade track.
     for i in range(n):
-        inputs += ["-i", f"{tmp}/ui_{i}.png"]
+        inputs += ["-framerate", str(FPS), "-i", f"{tmp}/ui_{i}.png"]
     # end_text: single frame + loop filter (deterministic frame count).
     # BUGFIX 2026-09-23: was "-loop 1 -t {END_D}" which is RACY with multiple
     # inputs (demuxer -t check vs loop timing) -> non-deterministic durations.
@@ -303,11 +310,11 @@ def build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions):
     # input map: 0 motto, 1..n workbig, n+1 endbg, n+2..2n+1 ui_0..ui_{n-1},
     #            2n+2 homebar, 2n+3 end_text
     fc += inputs
+    ui_base = n + 2
+    hb_idx, et_idx = 2 * n + 2, 2 * n + 3
     flt = []
     # v0 motto
     flt.append(f"[0:v]format=yuv420p,settb=AVTB,fps={FPS}[v0]")
-    for i in range(n):
-        flt.append(f"[{n+2+i}:v]format=rgba[u{i}]")
     vi = 1
     for i, m in enumerate(motions):
         fr = int(round(clip_ds[i] * FPS))          # zoompan frame count for this slot
@@ -320,17 +327,20 @@ def build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions):
             zp = (f"zoompan=z=1.07:x='(iw-iw/zoom)*on/{om}':y='(ih-ih/zoom)/2':"
                   f"d={fr}:s={W}x{H}:fps={FPS}")
         flt.append(f"[{vi}:v]{zp},format=yuv420p,settb=AVTB[raw{i}]")
-        # UI baked onto the slot clip BEFORE xfade: the whole frame (wallpaper
-        # + date/time) crossfades as one. The single-frame PNG is held by
-        # overlay's default eof_action=repeat.
-        flt.append(f"[raw{i}][u{i}]overlay=0:0:format=auto,format=yuv420p,settb=AVTB[v{i+1}]")
+        # v3: bake the single-format UI onto the slot clip BEFORE xfade.
+        # Geometry is identical on every slot, so mid-fade the date either
+        # holds still (same color) or crossfades cleanly in place — it can
+        # never jump or double. eof_action=repeat (default) holds the single
+        # UI frame over the whole raw clip.
+        flt.append(f"[raw{i}][{ui_base+i}:v]overlay=0:0:format=auto,"
+                   f"format=yuv420p,settb=AVTB[v{i+1}]")
         vi += 1
     # end card
     flt.append(f"[{vi}:v]zoompan=z='1+0.035*on/98':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=99:s={W}x{H}:fps={FPS},format=yuv420p,settb=AVTB[eraw]")
-    flt.append(f"[{2*n+3}:v]format=rgba,loop=loop={end_frames-2}:size=1:start=0,"
+    flt.append(f"[{et_idx}:v]format=rgba,loop=loop={end_frames-2}:size=1:start=0,"
                f"fade=t=in:st=0.9:d=0.7:alpha=1,settb=AVTB[etxt]")
     flt.append("[eraw][etxt]overlay=0:0:format=auto[etmp]")
-    flt.append(f"[etmp][{2*n+2}:v]overlay=0:0:format=auto,format=yuv420p,settb=AVTB[v{n+1}]")
+    flt.append(f"[etmp][{hb_idx}:v]overlay=0:0:format=auto,format=yuv420p,settb=AVTB[v{n+1}]")
     # normalize timebases + broadcast range before xfade
     for k in range(n + 2):
         flt.append(f"[v{k}]settb=AVTB,fps={FPS},scale=out_range=mpeg,format=yuv420p[vn{k}]")
@@ -347,13 +357,11 @@ def build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions):
         out = f"x{k}" if k < n else "vout"
         flt.append(f"[{cur}][{nxt}]xfade=transition=fade:duration={XF}:offset={offs[k]:.4f}[{out}]")
         cur = out
-    total_d = MOTTO_D + sum(dwells) + END_D - XF
-    fc += ["-filter_complex", ";".join(flt), "-map", "[vout]", "-t", f"{total_d:.1f}",
+    fc += ["-filter_complex", ";".join(flt), "-map", "[vout]", "-t", "14.5",
            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-color_range", "mpeg",
            "-b:v", "1400k", "-maxrate", "1800k", "-bufsize", "3600k",
            "-preset", "medium", "-r", str(FPS), f"{tmp}/video.mp4"]
-    return fc, total_d
-
+    return fc, offs
 
 
 def build(cfg):
@@ -380,11 +388,11 @@ def build(cfg):
         specs.append(spec)
 
     n = len(cfg["images"])
-    # Per-slot UI, baked onto each slot clip before xfade (2026-09-23 pm:
-    # date fades WITH the wallpaper). Unified format via UI_STYLE; only
-    # position/color adapt per wallpaper.
+    # Single-format UI frames (identical geometry; color adapts per wallpaper
+    # for readability), baked onto slot clips BEFORE the xfade chain so the
+    # date crossfades WITH the wallpaper (v3, user 2026-09-23).
     for idx, spec in enumerate(specs):
-        build_slot_ui(f"{tmp}/ui_{idx}.png", now, spec, clock)
+        build_lock_ui(f"{tmp}/ui_{idx}.png", now, spec["color"], clock)
 
     # per-slot dwell (visible seconds); sum must be 10.0 so total stays 14.5s
     # (= MOTTO_D + END_D - XF budget: 2.0 + 3.3 - 0.8)
@@ -403,8 +411,9 @@ def build(cfg):
     # ---- pass 1: video (command built by testable pure function) ----
     motions = cfg.get("motion", ["zin", "zout", "pan", "zin", "zin"])
     motions = [motions[i % len(motions)] for i in range(n)]
-    fc, total_d = build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions)
+    fc, offs = build_video_cmd(cfg, tmp, n, dwells, clip_ds, motions)
     run(fc)
+    total_d = MOTTO_D + sum(dwells) + END_D - XF  # 14.5, for the audio mux
 
     # ---- pass 2: audio + mux ----
     music = cfg.get("music")
