@@ -178,3 +178,34 @@ No wallpaper image reused across reels within a batch (clean A/B).
   queue in ~/workspace/instagram-setup/publish-queue.json); noir-macros
   additionally rendered with REEL_DATE=2026-09-24 for an immediate post the
   night before.
+- 2026-09-24 (batch-coordination BUG): the 9/24-dated noir-macros file that
+  was ALREADY PUBLISHED got overwritten at 00:55 EDT by the 9/25 batch
+  writing to the SAME output path (`noir-macros/reel-gradient-v3.mp4`).
+  No harm this time (published + dequeued before the overwrite), but the
+  rule is permanent: ONE writer per output path. Never let two batches
+  target the same file; if a second version is needed, use a distinct
+  filename or confirm the first is consumed before the second writes.
+- 2026-09-24 (PERMANENT lessons — gradient & 卡点 red lines, user order:
+  never repeat these).
+  1. Date and wallpaper MUST share the SAME fade and the SAME timing
+     (卡点). v3 architecture: bake the UI onto each slot clip BEFORE the
+     xfade chain, ONE fixed geometry for all slots (only text color adapts
+     to brightness). Never a post-xfade UI track with its own fades (v2
+     bug: the date popped mid-dissolve at transition midpoints, perceived
+     as random/unsynced), and never hard cuts unless the user explicitly
+     asks for them.
+  2. Ambiguous ultra-short creative instruction (e.g. "别改日期，就一个格式"
+     — meant: unify the font format, keep the fade) → align in ONE sentence
+     BEFORE burning render time. Misreading it as "remove the gradient"
+     cost a full 9-reel re-render with hard cuts that had to be redone
+     (2026-09-23, the most expensive lesson of this project).
+  3. REEL_DATE discipline: night-before renders pin the posting day via
+     REEL_DATE=YYYY-MM-DD; invalid dates raise ValueError, never silently
+     default. Never re-render solely to change the on-screen date unless
+     the date is actually wrong (user 2026-09-24: current date is fine,
+     do not re-render).
+  4. Text color: BRIGHTER of the two text bands (date y 380-500, clock y
+     620-830, x 270-1350) > 0.52 => dark-gray (28,28,28), else white.
+     Never average the top-60% brightness (misclassified bright dome as
+     dark => washed-out white text on chrome-noir slot 3).
+  5. End card shows only `ZenPixelWalls / Link in bio` — no lock-screen UI.
