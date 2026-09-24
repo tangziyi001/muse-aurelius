@@ -47,6 +47,14 @@ UI_STYLE = dict(time=lambda s, w: inter(s, 300), date=lambda s, w: inter(s, 300)
 def fmt_date(now):
     return now.strftime("%A, %B") + " " + str(int(now.strftime("%d")))
 
+def get_render_date():
+    """Lockscreen date for this render. REEL_DATE=YYYY-MM-DD pins it (for
+    scheduled renders made the night before posting day); unset -> now."""
+    env = os.environ.get("REEL_DATE")
+    if env:
+        return datetime.datetime.strptime(env, "%Y-%m-%d")
+    return datetime.datetime.now()
+
 def track_text(draw, xy, text, font, fill, tracking, anchor="m"):
     """Draw text centered at xy with letter tracking."""
     widths = [draw.textlength(ch, font=font) for ch in text]
@@ -370,7 +378,7 @@ def build(cfg):
     os.makedirs(outdir, exist_ok=True)
     tmp = f"/tmp/ab-render/{slug}"
     os.makedirs(tmp, exist_ok=True)
-    now = datetime.datetime.now()
+    now = get_render_date()
     date_str = now.strftime("%A, %B") + " " + str(int(now.strftime("%d")))
     clock = cfg.get("clock_time", "9:41")
 
