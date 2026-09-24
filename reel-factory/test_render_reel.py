@@ -1,26 +1,34 @@
 #!/usr/bin/env python3
 """Unit tests for render_reel.py — ZenPixelWalls Reel renderer.
 
-Covers:
-- 2026-09-23: `-loop 1 -t` race fix (deterministic loop filter).
-- 2026-09-23 (pm): 0.8s xfade crossfades restored; per-slot UI baked onto the
-  slot clip BEFORE the xfade chain so the date fades WITH the wallpaper
-  (user: previously published reels did this). Single unified typography
-  (UI_STYLE — "就一个格式"), no per-slot font rotation.
-- Output -t used instead of -shortest (no silent audio truncation).
+Architecture v3 (2026-09-23, user verdict on v2: "日期没渐变，卡点也不对，
+日期的切换完全random"):
+- The lockscreen UI is baked onto each slot clip BEFORE the xfade chain:
+  [raw{i}][ui_i]overlay -> xfade. The date crossfades WITH the wallpaper,
+  so the "卡点" is the transition itself — perfectly synced by construction.
+- ONE fixed UI geometry for every slot (UI_TIME_Y / UI_DATE_Y / sizes /
+  UI_STYLE font — user: "就一个格式"). Only the text color adapts to
+  wallpaper brightness for readability. Identical geometry means the date
+  never jumps position or doubles mid-fade (the v1 "还没渐变" ghosting and
+  the v2 midpoint hard-cut "random" switching are both gone).
+- 0.8s xfade chain (motto -> slots -> end card), total 14.5s.
+- No post-xfade UI track, no hard cuts, no -loop 1, no -shortest.
 
 Run: python3 -m pytest test_render_reel.py -v
 """
 import re
 import sys
 import os
-import inspect
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pytest
+from PIL import Image
 import render_reel
-from render_reel import build_video_cmd, UI_STYLE, FPS, MOTTO_D, END_D, XF
+from render_reel import (build_video_cmd, build_lock_ui, UI_STYLE, FPS,
+                         MOTTO_D, END_D, XF, UI_TIME_Y, UI_DATE_Y,
+                         UI_TIME_SIZE, UI_DATE_SIZE)
+import datetime
 
 
 def make_cfg(n=5, dwells=None, motions=None):
@@ -37,14 +45,14 @@ def make_cfg(n=5, dwells=None, motions=None):
 
 
 def make_cmd(n=5, dwell=2.0):
-    """Build a command with default dwells; returns (fc, filter, total_d)."""
+    """Build a command with default dwells; returns (fc, filter, offs)."""
     dwells = [dwell] * n
     clip_ds = [d + XF for d in dwells]  # raw clip length incl. xfade tail
     motions = ["zin"] * n
-    fc, total_d = build_video_cmd(make_cfg(n), "/tmp/fake", n, dwells,
-                                  clip_ds, motions)
+    fc, offs = build_video_cmd(make_cfg(n), "/tmp/fake", n, dwells,
+                               clip_ds, motions)
     idx = fc.index("-filter_complex")
-    return fc, fc[idx + 1], total_d
+    return fc, fc[idx + 1], offs
 
 
 def get_inputs(fc):
@@ -53,143 +61,187 @@ def get_inputs(fc):
     return fc[1:idx]  # skip 'ffmpeg', '-y', '-v', 'error'
 
 
-class TestXfadeRestored:
-    """REGRESSION (2026-09-23 pm, user: "加回渐变"): xfade must be back."""
+class TestXfadeChain:
+    """xfade crossfades must be present with correct offsets (user: 加回渐变)."""
+
+    def test_returns_two_tuple(self):
+        res = build_video_cmd(make_cfg(5), "/tmp/fake", 5,
+                              [2.0] * 5, [2.8] * 5, ["zin"] * 5)
+        assert isinstance(res, tuple) and len(res) == 2, \
+            "build_video_cmd must return (fc, offs) — no ui_start in v3"
+        fc, offs = res
+        assert isinstance(offs, list) and len(offs) == 6
 
     def test_xfade_present(self):
-        """Filtergraph MUST contain xfade transitions (user wants fades back)."""
         _, flt, _ = make_cmd()
-        assert "xfade=transition=fade" in flt, \
-            "Filtergraph must contain xfade (user asked to restore fades)"
+        assert "xfade=transition=fade" in flt
 
-    def test_no_concat_hardcut(self):
-        """Clips must NOT be concatenated with hard cuts anymore."""
-        _, flt, _ = make_cmd()
-        assert "concat=n=" not in flt, \
-            "Filtergraph must not concat clips with hard cuts"
-
-    def test_xfade_offsets(self):
-        """xfade offsets: first = MOTTO_D - XF, then +dwell each step."""
+    def test_xfade_count(self):
         n = 5
         _, flt, _ = make_cmd(n=n)
-        offs = [float(m) for m in re.findall(r"xfade=transition=fade:duration=[\d.]+:offset=([\d.]+)", flt)]
-        assert len(offs) == n + 1, f"Expected {n+1} xfade offsets, got {len(offs)}: {offs}"
-        assert abs(offs[0] - (MOTTO_D - XF)) < 1e-6, \
-            f"First offset {offs[0]} != MOTTO_D - XF = {MOTTO_D - XF}"
-        for k in range(1, len(offs)):
-            assert abs((offs[k] - offs[k-1]) - 2.0) < 1e-6, \
-                f"Offset step {k} should equal dwell 2.0, got {offs[k] - offs[k-1]}"
+        cnt = flt.count("xfade=transition=fade")
+        assert cnt == n + 1, f"Expected {n+1} xfades, got {cnt}"
 
-    def test_slot_clip_has_xfade_tail(self):
-        """Slot zoompan clips must include the XF tail (d=84 for 2.0s dwell)."""
+    def test_xfade_duration(self):
         _, flt, _ = make_cmd()
-        assert "d=84" in flt, \
-            "Slot clip must be 2.8s (dwell 2.0 + XF 0.8) -> zoompan d=84"
+        durs = set(re.findall(r"xfade=transition=fade:duration=([\d.]+):", flt))
+        assert durs == {str(XF)}, f"xfade durations must all be {XF}, got {durs}"
 
-    def test_total_duration_14_5(self):
-        """total_d = MOTTO_D + sum(dwells) + END_D - XF = 14.5s."""
-        _, _, total_d = make_cmd()
-        assert abs(total_d - 14.5) < 1e-9, f"total_d {total_d} != 14.5"
+    def test_xfade_offsets(self):
+        n = 5
+        _, flt, offs = make_cmd(n=n)
+        found = [float(m) for m in
+                 re.findall(r"xfade=transition=fade:duration=[\d.]+:offset=([\d.]+)", flt)]
+        assert len(found) == n + 1
+        assert abs(found[0] - (MOTTO_D - XF)) < 1e-6
+        for k in range(1, len(found)):
+            assert abs((found[k] - found[k - 1]) - 2.0) < 1e-6
+        assert found == pytest.approx(offs)
 
-    def test_output_t_14_5(self):
-        """Output must be cut with explicit -t 14.5 (not -shortest)."""
+    def test_total_duration(self):
         fc, _, _ = make_cmd()
-        idx = fc.index("-map")
-        tail = fc[idx:]
-        assert "-t" in tail and "14.5" in tail, \
-            f"Output must use -t 14.5, got tail: {tail[-8:]}"
-        assert "-shortest" not in fc, \
-            "Must not use -shortest (silent audio truncation)"
+        idx = fc.index("-t")
+        assert abs(float(fc[idx + 1]) - 14.5) < 1e-6, \
+            "Total must be MOTTO_D + sum(dwells) + END_D - XF = 14.5"
 
 
 class TestUIBakedBeforeXfade:
-    """REGRESSION (2026-09-23 pm, user: "日期跟着壁纸一起渐变"):
-    the date/time UI must be composited onto each slot clip BEFORE the
-    xfade chain, so the whole frame (wallpaper + UI) crossfades as one."""
+    """v3 ARCHITECTURE (user 2026-09-23: date must fade WITH the wallpaper).
 
-    def test_per_slot_ui_inputs(self):
-        """There must be one ui_{i}.png input per slot (single frames)."""
-        n = 5
-        fc, _, _ = make_cmd(n=n)
-        inputs = get_inputs(fc)
-        for i in range(n):
-            assert any(f"ui_{i}.png" in a for a in inputs), \
-                f"ui_{i}.png input missing"
+    The UI is composited onto each slot clip BEFORE the xfade chain, so the
+    date goes through the same 0.8s crossfade as the wallpaper — the 卡点 is
+    the transition itself, synced by construction. v2's post-xfade UI track
+    with hard cuts at midpoints ("日期没渐变，卡点也不对，切换random") is gone.
+    """
 
-    def test_ui_inputs_have_no_loop_or_t(self):
-        """Per-slot UI inputs must be single frames (no racy -loop/-t)."""
-        n = 5
-        fc, _, _ = make_cmd(n=n)
-        inputs = get_inputs(fc)
-        for i, arg in enumerate(inputs):
-            if re.search(r"ui_\d+\.png", arg):
-                segment = inputs[max(0, i-3):i+1]
-                assert "-loop" not in segment, \
-                    f"UI input must not use -loop (racy): {segment}"
-                assert "-t" not in segment, \
-                    f"UI input must not use -t (racy): {segment}"
-
-    def test_ui_overlaid_before_xfade(self):
-        """Each [raw{i}][u{i}]overlay must appear BEFORE the first xfade."""
+    def test_ui_baked_onto_each_slot(self):
+        """Each slot clip gets [raw{i}][ui]overlay before xfade."""
         n = 5
         _, flt, _ = make_cmd(n=n)
-        xfade_pos = flt.index("xfade")
         for i in range(n):
-            tag = f"[raw{i}][u{i}]overlay"
-            assert tag in flt, f"Missing baked UI overlay: {tag}"
-            assert flt.index(tag) < xfade_pos, \
-                f"{tag} must come BEFORE xfade (UI baked into slot clip)"
+            pat = re.compile(rf"\[raw{i}\]\[\d+:v\]overlay[^;]*\[v{i+1}\]")
+            assert pat.search(flt), \
+                f"slot {i}: expected [raw{i}][ui]overlay bake -> [v{i+1}]"
+
+    def test_bake_before_first_xfade(self):
+        """All UI bakes must appear textually before the first xfade."""
+        _, flt, _ = make_cmd()
+        first_xfade = flt.index("xfade=transition=fade")
+        for m in re.finditer(r"\[raw\d+\]\[\d+:v\]overlay", flt):
+            assert m.start() < first_xfade, \
+                "UI bake must come before the xfade chain"
 
     def test_no_post_xfade_ui_track(self):
-        """No separate UI video track overlaid after xfade (old hardcut way)."""
+        """No separate UI video track overlaid after xfade (v2 design)."""
         _, flt, _ = make_cmd()
-        assert "uivd" not in flt, "Post-xfade UI track must be gone"
-        assert "between(t," not in flt, "Hardcut UI enable window must be gone"
+        assert "eof_action=pass" not in flt, "v2 UI-track overlay must be gone"
+        assert "enable='gte(t," not in flt, "v2 midpoint hard-cut must be gone"
+        assert "[uiv]" not in flt, "v2 UI concat track must be gone"
+        assert "setpts=PTS+" not in flt, "v2 UI delay must be gone"
 
-    def test_single_format_builder_exists(self):
-        """build_slot_ui must exist with NO slot_idx (one format, no rotation)."""
-        builder = getattr(render_reel, "build_slot_ui", None)
-        assert builder is not None, \
-            "build_slot_ui missing (per-slot UI builder with unified style)"
-        params = inspect.signature(builder).parameters
-        assert "slot_idx" not in params, \
-            f"build_slot_ui must not take slot_idx (no per-slot rotation): {list(params)}"
+    def test_final_output_is_xfade_result(self):
+        """The mapped output must be the xfade chain result, not a UI overlay."""
+        fc, flt, _ = make_cmd()
+        # -map [vout]: vout is the last xfade output label
+        assert "-map" in fc and "[vout]" in fc
+        assert re.search(r"xfade=transition=fade:duration=[\d.]+:offset=[\d.]+\[vout\]", flt), \
+            "last xfade must output [vout]"
+        assert "[vfinal]" not in flt, "v2 [vfinal] UI-overlay label must be gone"
 
-    def test_ui_style_is_single_dict(self):
-        """UI_STYLE must be one dict (not a list of rotating styles)."""
-        assert isinstance(UI_STYLE, dict), \
-            f"UI_STYLE must be a single dict, got {type(UI_STYLE)}"
-        assert set(UI_STYLE) >= {"time", "date"}, \
-            f"UI_STYLE missing time/date keys: {set(UI_STYLE)}"
+    def test_ui_inputs_are_single_pngs(self):
+        """n single-frame ui PNG inputs (one per slot, color may differ)."""
+        n = 5
+        fc, _, _ = make_cmd(n=n)
+        inputs = get_inputs(fc)
+        ui_ins = [inputs[i + 1] for i, v in enumerate(inputs)
+                  if v == "-i" and inputs[i + 1].endswith(".png")
+                  and "/ui_" in inputs[i + 1]]
+        assert len(ui_ins) == n, f"Expected {n} ui PNG inputs, got {len(ui_ins)}"
 
-
-class TestNoLoopRace:
-    """REGRESSION: `-loop 1 -t` image inputs are racy with many inputs."""
-
-    def test_end_text_has_no_loop(self):
-        """End-card text input must avoid -loop 1 -t (same race)."""
+    def test_no_loop1_race(self):
+        """No -loop 1 image inputs (2026-09-23 race fix still holds)."""
         fc, _, _ = make_cmd()
         inputs = get_inputs(fc)
-        for i, arg in enumerate(inputs):
-            if "end_text.png" in arg:
-                segment = inputs[max(0, i-3):i+1]
-                assert "-loop" not in segment, \
-                    f"end_text input must not use -loop: {segment}"
-                assert "-t" not in segment, \
-                    f"end_text input must not use -t: {segment}"
-                break
-        else:
-            pytest.fail("end_text.png not found in inputs")
+        assert "-loop" not in inputs
 
-    def test_end_text_loop_filter_count(self):
-        """End-card text must use deterministic loop filter."""
-        _, flt, _ = make_cmd()
-        expected_frames = int(round(END_D * FPS))  # 99
-        expected_loop = expected_frames - 2  # 97
-        pattern = f"loop=loop={expected_loop}:size=1:start=0"
-        assert pattern in flt, \
-            f"end_text must use loop=loop={expected_loop} for {expected_frames} frames"
+    def test_no_shortest(self):
+        fc, _, _ = make_cmd()
+        assert "-shortest" not in fc
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+class TestSingleUIGeometry:
+    """'就一个格式': identical UI geometry on every slot.
+
+    Only the text color may adapt (readability); position, size and font are
+    fixed, so the date can never jump or double mid-fade.
+    """
+
+    def test_geometry_constants_sane(self):
+        assert 0 < UI_DATE_Y < UI_TIME_Y < 1920
+        assert UI_TIME_SIZE > UI_DATE_SIZE > 0
+
+    def test_identical_layout_for_different_colors(self):
+        """Same layout (alpha channel) regardless of text color."""
+        now = datetime.datetime(2026, 9, 23, 21, 30)
+        p1, p2 = "/tmp/t_ui_white.png", "/tmp/t_ui_dark.png"
+        build_lock_ui(p1, now, (255, 255, 255))
+        build_lock_ui(p2, now, (28, 28, 28))
+        a1 = Image.open(p1).split()[3]
+        a2 = Image.open(p2).split()[3]
+        assert list(a1.getdata()) == list(a2.getdata()), \
+            "UI layout must be pixel-identical; only color may differ"
+
+    def test_unified_typography(self):
+        """UI_STYLE still the single Inter Light style for all slots."""
+        assert UI_STYLE["time_tr"] == 10 and UI_STYLE["date_tr"] == 3
+
+    def test_ui_has_date_and_clock(self):
+        """The baked UI actually contains visible date + clock + home bar."""
+        now = datetime.datetime(2026, 9, 23, 21, 30)
+        p = "/tmp/t_ui_content.png"
+        build_lock_ui(p, now, (255, 255, 255))
+        im = Image.open(p).convert("L")
+        assert im.getbbox() is not None, "UI must not be empty"
+        # date band (top) and clock band (middle) both non-empty
+        assert im.crop((0, 0, 1080, 400)).getbbox() is not None
+        assert im.crop((0, 400, 1080, 700)).getbbox() is not None
+
+    def test_old_build_slot_ui_removed(self):
+        """Per-slot adapted-geometry builder must not exist anymore."""
+        assert not hasattr(render_reel, "build_slot_ui"), \
+            "build_slot_ui (adapted position/size) removed; use build_lock_ui"
+
+
+class TestAnalyzeWallpaperBand:
+    """v3: text color decided by the FIXED UI band, not top-60% average."""
+
+    def test_bright_band_gives_dark_text(self):
+        from PIL import Image as PILImage, ImageDraw
+        wk = PILImage.new("RGB", (1620, 2880), (30, 30, 30))
+        d = ImageDraw.Draw(wk)
+        d.rectangle([270, 380, 1350, 500], fill=(230, 230, 230))  # bright date band
+        spec = render_reel.analyze_wallpaper(wk)
+        assert spec["dark"] is False and spec["color"] == (28, 28, 28)
+
+    def test_dark_band_gives_white_text(self):
+        from PIL import Image as PILImage, ImageDraw
+        wk = PILImage.new("RGB", (1620, 2880), (200, 200, 200))
+        d = ImageDraw.Draw(wk)
+        d.rectangle([270, 380, 1350, 500], fill=(20, 20, 20))
+        d.rectangle([270, 620, 1350, 830], fill=(20, 20, 20))
+        spec = render_reel.analyze_wallpaper(wk)
+        assert spec["dark"] is True and spec["color"] == (255, 255, 255)
+
+    def test_brighter_of_two_bands_wins(self):
+        """Bright date band + dark clock band -> dark text (date needs it)."""
+        from PIL import Image as PILImage, ImageDraw
+        wk = PILImage.new("RGB", (1620, 2880), (20, 20, 20))
+        d = ImageDraw.Draw(wk)
+        d.rectangle([270, 380, 1350, 500], fill=(230, 230, 230))
+        spec = render_reel.analyze_wallpaper(wk)
+        assert spec["color"] == (28, 28, 28)
+
+    def test_spec_shape(self):
+        from PIL import Image as PILImage
+        spec = render_reel.analyze_wallpaper(PILImage.new("RGB", (1620, 2880), (0,0,0)))
+        assert set(spec.keys()) == {"dark", "color"}
