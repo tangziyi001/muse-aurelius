@@ -59,7 +59,8 @@ No wallpaper image reused across reels within a batch (clean A/B).
    Never hand off a broken reel.
 7. **Review gate.** Hand back `reel.mp4 + cover.jpg + caption.txt +
    attribution.txt` per combo. PUBLISH ONLY on the user's explicit approval,
-   via `instagram-cli post-reel --account-id 17841421372905519`, then verify
+   via `instagram-cli post-feed --account-id 17841421372905519 --file reel.mp4 --cover cover.jpg --caption "$(cat caption.txt)"`
+   (post-feed handles video; there is no post-reel command), then verify
    (post count +1, caption matches, correct account).
 
 ## Iron rules (permanent)
@@ -94,50 +95,17 @@ No wallpaper image reused across reels within a batch (clean A/B).
   elements — with much more detailed prompts, zero AI-look. Per the research
   iron rule: research the niche's winning formats first, form a playbook,
   THEN produce. No publishing without explicit approval.
-- 2026-09-23: transition UI ghosting bug FIXED in render_reel.py (root cause:
-  per-slot lockscreen UI was composited onto each slot clip BEFORE the xfade
-  chain, so the 0.8s fade showed two different date/clock fonts overlapping).
-  Fix: slot UIs are concatenated into one UI video track (each held for its
-  slot dwell) and overlaid AFTER xfade with hard cuts at transition midpoints;
-  per-slot font rotation preserved. Backup of the old
-  renderer: render_reel.py.bak-20260923. Rule: never bake overlay graphics
-  into clips that go through a crossfade — composite them after.
-- 2026-09-23 (pm): ghosting bug REINTRODUCED then RE-FIXED the same day.
-  After the user asked to "加回渐变" (restore fades) + "就一个格式" (one font
-  format), the renderer was changed to bake the per-slot UI onto slot clips
-  BEFORE xfade — violating the rule above. Result: mid-fade frames showed the
-  date/clock DOUBLED at two different positions (per-wallpaper adapted
-  geometry), which the user rejected ("还没渐变" — it reads as broken, not as
-  a fade). Lesson: "date fades WITH the wallpaper" must be implemented as
-  xfade-on-bare-wallpapers + UI track overlaid after (hard cuts at midpoints),
-  NEVER as bake-before-xfade — even when the font is unified, per-slot
-  position/size differences still ghost. The correct final architecture:
-  0.8s xfade on bare clips + single Inter Light UI_STYLE for all slots +
-  UI track (loop filter -> concat -> setpts delay -> overlay eof_action=pass).
-  Regression tests in test_render_reel.py (21 tests) pin this: no
-  [raw{i}][u{i}]overlay in the filtergraph, UI inputs are single frames,
-  concat->setpts order, ui_start == offs[0]+XF/2.
-- 2026-09-23: UI-track sync bug FIXED (user caught it: "date switch not synced
-  with wallpaper"). Root cause: overlay's framesync consumes the secondary
-  (UI) input from t=0 even while enable='gte(t,1.6)' is false, so the whole UI
-  timeline ran 1.6s EARLY — the date hard-cut ~1.2s before the wallpaper
-  transition even started, and the last slot's final 1.2s had no UI at all.
-  Fix: [uiv]setpts=PTS+<ui_start>/TB delays the UI track so its local t=0
-  aligns with the first transition midpoint on the output timeline. Rule:
-  overlay `enable` only gates compositing, it does NOT delay the secondary
-  stream — always shift the secondary stream itself with setpts when you need
-  a delayed overlay.
-- 2026-09-23: `-loop 1 -t {dur}` image-input RACE fixed (the true root cause
-  behind the "date switch" complaint). With many inputs, the image2 demuxer's
-  `-t` cutoff vs `-loop 1` timing is NON-DETERMINISTIC: measured UI segment
-  frame counts of 66/54/66/54/60 instead of 60/60/60/60/60, shifting UI
-  segment boundaries by up to 0.2s (date cut landed at output frame #114
-  instead of #108). Fix: feed SINGLE frames (no -loop, no -t) and expand
-  with the loop filter — `format=rgba,loop=loop={N-2}:size=1:start=0`
-  yields exactly N frames, deterministically (empirically verified).
-  Rule: NEVER use `-loop 1 -t` for image inputs in a multi-input graph;
-  always use single-frame input + loop filter (or another deterministic
-  frame-count method). Applies to UI segments AND the end-card text input.
+- 2026-09-23: UI-transition history (condensed — all superseded by v3 below).
+  v1 baked per-slot ADAPTED UI geometry before xfade => ghosting (date doubled
+  at two positions mid-fade). v2 then overlaid one UI track AFTER xfade with
+  hard cuts at transition midpoints => date popped mid-dissolve, perceived as
+  random/unsynced (user: "日期的切换完全random"). Root-cause insight: v1's
+  ghosting came from per-slot ADAPTED GEOMETRY, not from baking itself.
+  Related fixes that remain valid: overlay `enable` only gates compositing,
+  not the secondary stream's clock — always shift it with setpts (fixed the
+  1.6s-early UI bug); NEVER use `-loop 1 -t` for image inputs in a
+  multi-input graph — use single-frame input + loop filter (fixed the
+  non-deterministic UI segment frame counts 66/54/66/54/60).
 - 2026-09-23: authoritative pure-wallpaper library built at
   ~/workspace/instagram-setup/wallpaper-art/ (41 packs, 156 pure JPGs from
   the 41 orig_backup ZIPs, index.json maps every pack to its Etsy listing_id).
@@ -203,3 +171,10 @@ No wallpaper image reused across reels within a batch (clean A/B).
   (>0.52) => dark-gray text (28,28,28), else white. Never use the old top-60%
   average (misclassified a bright dome as dark => white text washed out on
   chrome-noir slot 3). 22 tests incl. brighter-of-two-bands regression.
+- 2026-09-24: `REEL_DATE=YYYY-MM-DD` env override added to render_reel.py
+  (`get_render_date()`; 3 new tests, 25 total). Lets a night-before render
+  show the posting day's date. 9 reels re-rendered with REEL_DATE=2026-09-25
+  for the 9/25 hourly drip (cron zenpixelwalls-reel-drip-v3, 08:00-16:00 EDT,
+  queue in ~/workspace/instagram-setup/publish-queue.json); noir-macros
+  additionally rendered with REEL_DATE=2026-09-24 for an immediate post the
+  night before.
