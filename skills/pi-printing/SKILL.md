@@ -8,8 +8,11 @@
 - IPP: `ipp://192.168.1.220/ipp/print`（端口 631）
 - 关键实测结论（2026-09-26）：
   - `document-format=application/pdf` → `0x040a` operation-not-supported（别用）
-  - `document-format=application/octet-stream` → `0x0000` 成功，打印机会自己识别 PDF 内容
-  - 打印机声明只支持光栅格式（PCLm/pwg-raster/urf），但 octet-stream 实测可直接喂 PDF
+  - `document-format=application/octet-stream` + PDF → `0x0000` 但**实际没打出**（打印机默默丢弃，不支持 PDF 解析）
+  - 正确路线：`pdf_to_pwg.py` 把 PDF 转成 PWG raster（sgray_8，打印机自声明支持），再用 `document-format=image/pwg-raster` 发 Print-Job
+  - PWG 头严格按 CUPS raster-stream.c 的 WRITE_PWG 逻辑：`RaS2` + cups_page_header2_t 大端序
+  - 传文件用 150dpi 版（~6.5MB/3页），300dpi 的 26MB 在 Pi→打印机链路上超时
+- 打印机休眠注意：HP M29w 长时间不用会掉线（ping 不通、整网段扫不到 9100），需用户先开机/唤醒并确认连上 WiFi
 
 ## 用法
 
