@@ -101,7 +101,8 @@ every run (batch #, files per platform, cost, staging state, key learning).
 Review outcomes feed back into the next batch's topic selection
 (learnings-first: check 123RF/Dreamstime/Adobe review states before locking
 topics). Submission routing: 123RF via `123rf-upload-watch` (2h); Dreamstime
-via main-agent browser delegation on delivery; Adobe via
+via `dreamstime-review-watch` (10:19, fills metadata + submits Unfinished
+files, automated 2026-09-26); Adobe via
 `adobe-stock-review-watch` (09:49 upload+submit step, generalized 2026-09-26
 to scan `files/adobe-stock-batch-*/`).
 
