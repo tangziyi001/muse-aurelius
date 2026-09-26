@@ -3,7 +3,12 @@ name: "stock-batch-pipeline"
 description: "Generate→QA→upscale→metadata→stage new AI illustration batches for 123RF and Dreamstime contributor accounts, and submit them for review. Use for any stock-platform batch production."
 ---
 
-# Stock Batch Pipeline (123RF + Dreamstime)
+# Stock Batch Pipeline (123RF + Dreamstime + Adobe Stock)
+
+> 2026-09-26: user ordered daily cadence on ALL platforms. Weekly cron
+> retired; `stock-batch-daily` runs every morning and now stages Adobe
+> batches too (`files/adobe-stock-batch-NN/`), uploaded by
+> `adobe-stock-review-watch`.
 
 End-to-end playbook for producing new AI illustration batches and getting them
 into review on 123RF and Dreamstime. Code lives in
@@ -85,14 +90,20 @@ regression tests. Bug fix = reproduction test first, then fix.
 Run: `/tmp/pytest-venv/bin/python -m pytest test_pipeline.py -q`
 (venv has pytest+pillow; system python is PEP-668 locked).
 
-## Weekly auto-iteration cron
+## Daily auto-iteration cron
 
-Owner: goal_709d7919ac5f. The cron does stages 1–6 (generate→QA→stage),
-cost cap $2/run, then reports "staged, needs browser submission" — the main
-agent arranges browser delegation on delivery. Notify the user ONLY on:
-submit failure, review rejections (with reasons), or cost/blocker anomalies.
+Owner: goal_709d7919ac5f. The cron runs daily (08:00 ET, `stock-batch-daily`),
+does stages 1–6 (generate→QA→stage), cost cap $2/day, then reports "staged,
+needs browser submission" — the main agent arranges browser delegation on
+delivery. Notify the user ONLY on: submit failure, review rejections (with
+reasons), or cost/blocker anomalies. A concise daily update is delivered
+every run (batch #, files per platform, cost, staging state, key learning).
 Review outcomes feed back into the next batch's topic selection
-(learnings-first: check 123RF/Dreamstime review states before locking topics).
+(learnings-first: check 123RF/Dreamstime/Adobe review states before locking
+topics). Submission routing: 123RF via `123rf-upload-watch` (2h); Dreamstime
+via main-agent browser delegation on delivery; Adobe via
+`adobe-stock-review-watch` (09:49 upload+submit step, generalized 2026-09-26
+to scan `files/adobe-stock-batch-*/`).
 
 ## Cost ledger
 
