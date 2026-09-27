@@ -133,3 +133,26 @@ to scan `files/adobe-stock-batch-*/`).
 - 2026-09-24: dedup checker caught b05-01 vs b03-02 (turkey table 0.54) and
   b05-15 vs b04-07 (pine/red/snow 0.50) — reworked both before generating.
   Keep threshold 0.45.
+- 2026-09-27 batch-07 daily run (20/20, $1.05/$2.00 ledger-exact, gen all OK
+  on first pass): visual QA found corner signatures on 3/20 despite the
+  "no signature" prompt suffix (b07-05, b07-14, b07-15 — FLUX 2 Flex adds
+  them ~15% of the time). b07-05 and b07-15 cropped to 3026x2008 (6.08MP)
+  / 3116x2068 (6.44MP); b07-14 crop would have dropped below 6MP, so
+  regenerated with a new seed (+$0.05). Rule confirmed: crop corner margins
+  if tiny AND the result stays >=6MP, else regenerate one variable (seed).
+- 2026-09-27: dedup corpus fix — `metadata.py` `_load_prior_titles()` now
+  includes batch-05 (topics module) and batch-06 staged files, documented
+  batch-01..06. The old `test_all_batch05_topics_pass_dedup` assumed b05
+  was NOT in the corpus, so it failed against itself; test now excludes b05's
+  own titles (priors = batches 1–4). Also caught real collisions pre-gen:
+  b07-17 vs b04-02 (christmas gift hands 0.45 → title reworked).
+- 2026-09-27: finalize_batch.py does NOT cover the b07-14-class rework:
+  re-running it re-upscales src→final and destroys corner crops. For
+  post-finalize rework, copy final→stage dirs and rebuild metadata manually
+  (see 2026-09-27 run log). Consider extending finalize_batch with a
+  --metadata-only mode.
+- 2026-09-27: Pi SSH as root — `pihome` alias lives in
+  /home/hatch/.ssh/config, which root's ssh does NOT read. Use
+  `ssh -F /home/hatch/.ssh/config pihome` (or set HOME=/home/hatch).
+- 2026-09-27: stage_to_pi.sh uses bare `ssh pihome` and would fail for a
+  root exec the same way; worked around with -F this run.
