@@ -13,6 +13,7 @@
   - PWG 头严格按 CUPS raster-stream.c 的 WRITE_PWG 逻辑：`RaS2` + cups_page_header2_t 大端序
   - 传文件用 150dpi 版（~6.5MB/3页），300dpi 的 26MB 在 Pi→打印机链路上超时
 - 打印机休眠注意：HP M29w 长时间不用会掉线（ping 不通、整网段扫不到 9100），需用户先开机/唤醒并确认连上 WiFi
+- ⚠️ 2026-09-27 实测：PWG raster 任务会搞死打印机网络栈——17MB 整份和 8.7MB 半份在 sendall 中途超时，随后打印机整网段消失（非 DHCP 换 IP，逐个扫过 9100），需断电重启。用户已两次观察到"一打印就掉线"。在查明 PWG 头/数据格式问题前，**不要再向该打印机发 PWG 任务**，每次尝试都要用户亲手重启。当前 pi_print.py（发原始 PDF + octet-stream）只会得到 0x0000 默默丢弃，同样不要用。两份 8.7MB PWG 暂存在 Pi 的 /config/pi-print/part1.pwg、part2.pwg（持久），修好格式后再试。
 
 ## 用法
 
