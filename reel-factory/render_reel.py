@@ -267,9 +267,14 @@ def end_text_png(tmp, text_fill):
     lay.save(out)
     return out
 
+def _music_wav_path(slug, pid):
+    # slug may contain "/" (date-prefixed batch slugs like "2026-09-28/x")
+    # which would otherwise build a bogus nested tmp path; sanitize it.
+    return f"/tmp/_vol_{str(slug).replace('/', '_')}_{pid}.wav"
+
 def best_music_window(mp3, slug, seg=14.5):
     # unique temp wav per process: parallel renders must not share one path
-    wav = f"/tmp/_vol_{slug}_{os.getpid()}.wav"
+    wav = _music_wav_path(slug, os.getpid())
     run(["ffmpeg", "-y", "-v", "error", "-i", mp3, "-ac", "1", "-ar", "22050", wav])
     import wave
     wv = wave.open(wav); n = wv.getnframes(); sr = wv.getframerate()
