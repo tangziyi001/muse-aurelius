@@ -269,3 +269,13 @@ if __name__ == "__main__":
 ```
 
 Run it: `python3 check.py https://www.etsy.com/your/shops/me/dashboard`, then `scp` back `shots/check.png`.
+
+## Site notes: Greenhouse job boards via Pi (Wiz / Airbnb, 2026-09-27)
+
+- Both used Greenhouse's cross-origin iframe (OOPIF): `job-boards.greenhouse.io/embed/job_app`. The iframe's validityToken expires — always pick the CURRENT iframe websocket from `/json/list` (`type=iframe`), never reuse a stale URL.
+- Submit button lives in the iframe, but `Input.dispatchMouseEvent` must go to the MAIN page session: coords = iframe offset in main page + button's relative coords in iframe.
+- React forms need the native prototype setter (`Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set`); plain `el.value = x` is invisible to React and submit fails with "First Name/Email required".
+- All dropdowns are React Select comboboxes: click input → type to filter → read `[role=option]` → real mouse click on the match. Airbnb's Location field rejects direct set_text ("Please enter your location").
+- Matcher bug lesson (real near-miss): substring matching "No" hit "now" inside "Yes, I will require sponsorship now…" and selected YES. Use scored matching: exact=3 > word-boundary=2 > substring=1. Add a pre-submit verify gate (e.g. sponsorship text starts with "No", location contains "New York") before clicking.
+- Resume upload: React may re-render and detach the file-input node after `DOM.setFileInputFiles`; wrap in try/catch and confirm by the displayed filename, not files[0].
+- Why the cloud browser failed: invisible reCAPTCHA Enterprise silently swallows clicks from datacenter IPs (no error, no challenge UI). Residential Pi IP: a single real click succeeded.
