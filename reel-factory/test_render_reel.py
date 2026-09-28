@@ -270,3 +270,18 @@ class TestRenderDateOverride:
         now = _dt.datetime.now()
         assert isinstance(d, _dt.datetime)
         assert (d.year, d.month, d.day) == (now.year, now.month, now.day)
+
+
+class TestMusicWavPath:
+    """Regression 2026-09-28: date-prefixed slugs ("2026-09-28/x") built a
+    bogus nested tmp path (/tmp/_vol_2026-09-28/x_<pid>.wav) whose directory
+    ffmpeg cannot create, killing every render in the batch."""
+
+    def test_slash_slug_sanitized(self):
+        p = render_reel._music_wav_path("2026-09-28/dark-living", 4178)
+        assert p == "/tmp/_vol_2026-09-28_dark-living_4178.wav"
+        assert p.count("/") == 2  # only the /tmp/ prefix
+
+    def test_plain_slug_unchanged(self):
+        p = render_reel._music_wav_path("dark-living", 4178)
+        assert p == "/tmp/_vol_dark-living_4178.wav"
