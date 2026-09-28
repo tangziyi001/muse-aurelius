@@ -156,3 +156,19 @@ to scan `files/adobe-stock-batch-*/`).
   `ssh -F /home/hatch/.ssh/config pihome` (or set HOME=/home/hatch).
 - 2026-09-27: stage_to_pi.sh uses bare `ssh pihome` and would fail for a
   root exec the same way; worked around with -F this run.
+- 2026-09-28: batch-08 rerun (20/20, $1.00/$2.00 ledger-exact, all 20 OK on
+  first pass): visual QA caught tiny gibberish corner marks on 4/20
+  (b08-11, b08-13, b08-17, b08-20) — corner-signature rate 20% vs 15% in
+  batch-07; FLUX 2 Flex faint bottom-edge marks are now the norm, not the
+  exception. All four fixed by cropping 140px off the bottom (3328x2068 =
+  6.88MP, still >=6MP) directly on final/ + both stage dirs (never re-run
+  finalize_batch after crops — it destroys them). Crop script ran on 3
+  copies per file; visually verified the mark was gone on one sample corner
+  zoom. Zero regenerations needed this run.
+- 2026-09-28: `stage_to_pi.sh 08` bug — `printf "%02d" "08"` treats "08" as
+  octal → "invalid octal number", silently producing BID=00 and staging
+  nothing. Fixed with `$((10#$B))` (arithmetic-expansion base-10; note
+  printf %d itself does NOT accept the 10# prefix). Regression test
+  `test_stage_to_pi.py` covers 05/08/09/10 → correct zero-padded BID.
+  Lesson: any batch-08+ staging must go through the fixed script; batch
+  numbers 08/09 would have silently broken every prior string-only script.
