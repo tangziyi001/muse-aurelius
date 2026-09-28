@@ -209,3 +209,15 @@ No wallpaper image reused across reels within a batch (clean A/B).
      Never average the top-60% brightness (misclassified bright dome as
      dark => washed-out white text on chrome-noir slot 3).
   5. End card shows only `ZenPixelWalls / Link in bio` — no lock-screen UI.
+
+- 2026-09-28: first daily run (cron reel-daily-production). 5 combos, 25 unique
+  phone-only images (3 single-pack: b01/b03/b02 + 2 mixes: morandi l01+l02,
+  chrome l04+l05+w14), 5 different public-domain classical tracks
+  (Holst Neptune / Bach BWV565 organ / Mussorgsky Promenade / Satie Gymnopedie /
+  Debussy Clair de lune), all QC-passed. INCIDENT: date-prefixed slugs
+  ("2026-09-28/x") made best_music_window write to a bogus nested tmp path
+  `/tmp/_vol_2026-09-28/<combo>_<pid>.wav` — ffmpeg failed on all 4 first
+  renders (exit codes were masked by `| tail`, so failures looked like
+  successes). Fixed: `_music_wav_path()` sanitizes "/"->"_" + 2 regression
+  tests (27 tests pass). Lesson: never pipe renders to tail when exit codes
+  matter; re-verify output files exist after any render.
