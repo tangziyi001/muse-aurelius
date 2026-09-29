@@ -172,3 +172,25 @@ to scan `files/adobe-stock-batch-*/`).
   `test_stage_to_pi.py` covers 05/08/09/10 → correct zero-padded BID.
   Lesson: any batch-08+ staging must go through the fixed script; batch
   numbers 08/09 would have silently broken every prior string-only script.
+- 2026-09-29: batch-09 generation BLOCKED — fal.ai returned HTTP 403
+  `{"detail":"User is locked. Reason: TOP_UP."}` on all 20 topics (account
+  needs a top-up; deterministic billing lock, not transient). $0.00 spent,
+  0/20 generated; batch-09 topics+dedup+tests are complete and
+  `run_batch.py --batch 09` is idempotent — rerun it after the user tops up
+  the fal.ai account. Added fail-fast to `gen_flux.request_image_url()`:
+  account-lock 403 now raises on the FIRST attempt instead of burning
+  4 retries × backoff (~80s/image, ~7 min wasted this run). Regression
+  tests `test_gen_flux_lock.py` (fail-fast on locked 403; transient 500
+  still retries). Do NOT "fix" by reconnecting the credential — the request
+  carried it; the lock is billing-side.
+- 2026-09-29: dedup corpus lagged again — `_load_prior_titles()` covered
+  only batch-01..06 on disk, so b07/b08 theme repeats would have slipped
+  through (caught 10 pre-gen collisions on batch-09 topics: wreath-on-door,
+  brass lantern, stockings, frozen waterfall, deer, chestnuts, mulled wine,
+  gift wrapping, baked brie, snow globe — several were near-verbatim
+  repeats of b08 titles I hadn't re-read). Fixed: BATCH_DIRS now includes
+  batch-07/stage/123rf and batch-08/stage/123rf (corpus = batch-01..08).
+  Regression tests in test_batch09.py assert the on-disk corpus covers the
+  newest prior batch. Standing lesson: before drafting topics, `python3 -c
+  "import topics_batchNN"` and PRINT the last batch's titles — don't trust
+  memory of what was covered.
