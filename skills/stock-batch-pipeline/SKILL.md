@@ -194,3 +194,13 @@ to scan `files/adobe-stock-batch-*/`).
   newest prior batch. Standing lesson: before drafting topics, `python3 -c
   "import topics_batchNN"` and PRINT the last batch's titles — don't trust
   memory of what was covered.
+- 2026-09-30: fal.ai TOP_UP lock persists (second day): direct probe
+  returned HTTP 403 {"detail":"User is locked. Reason: TOP_UP."}, so
+  batch-09 stayed 0/20 generated, $0.00/$2.00 spent. Topics+dedup+tests
+  (test_batch09.py 9/9 pass) unchanged; `run_batch.py --batch 09` remains
+  idempotent — rerun after the user tops up the fal.ai account. No new
+  rejections in any of the three watch logs this morning (123rf watch 09-30
+  07:05 healthy/silent; dreamstime watch latest 09-29 batch-08 100%
+  approved; adobe review-watch latest 09-29 4 rejections already reported).
+  /tmp/pytest-venv was wiped (VM restart); recreated with pytest+pillow
+  before running tests.
