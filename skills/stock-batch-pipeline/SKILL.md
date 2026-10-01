@@ -204,3 +204,4 @@ to scan `files/adobe-stock-batch-*/`).
   approved; adobe review-watch latest 09-29 4 rejections already reported).
   /tmp/pytest-venv was wiped (VM restart); recreated with pytest+pillow
   before running tests.
+- 2026-10-01: fal.ai TOP_UP lock persists (third consecutive day): all 20 batch-09 topics failed fast on HTTP 403 {"detail":"User is locked. Reason: TOP_UP."} on a single probe per topic (~10s total run), $0.00/$2.00 spent, 0/20 generated. Topics+dedup+tests (test_batch09.py 9/9 pass) unchanged; `run_batch.py --batch 09` remains idempotent for rerun after the user tops up. Fail-fast worked as designed (no backoff burn). NOTE: the run's RuntimeError message says "failed after 4 tries" even when fail-fast breaks at attempt 1 — cosmetic only, the behavior is correct. Do NOT "fix" by reconnecting the credential — billing-side lock.
