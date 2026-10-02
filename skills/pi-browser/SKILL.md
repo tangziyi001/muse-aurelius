@@ -196,6 +196,10 @@ Never log the code, never put it in result JSON, never keep the file after the r
 7. **Never use heredocs through the ssh chain.** `ssh pihome 'python3 - <<EOF ...'` mangles quotes/backslashes (single quotes around JS strings get stripped). Write scripts locally with the file tools and transfer via `ssh pihome 'cat > /path/file' < localfile` — stdin redirect survives intact.
 8. **Avoid `%` string-formatting for JS passed to `cdp.evaluate`.** Build JS with plain string concatenation instead; stray `%` interactions produce silent wrong values (observed: evaluate returning `{}` instead of the clicked button label).
 
+## Container-wipe lesson (2026-10-02, after Pi crash/reboot)
+
+The SSH add-on is an ephemeral Alpine container: after a Pi reboot/add-on restart, `/usr/bin/chromium`, `python3`, and Xvfb are **all gone**, while `/config/*` (profiles, scripts) survives. Recovery: `apk add --no-cache chromium python3` works over the container's direct network. If Xvfb is also missing, switch launch flags to `--headless=new` (read-only dashboard checks and CDP probing work fine headless; `Input.dispatchMouseEvent` clicks still function). Update launch scripts to a headless fallback so the next rebuild doesn't block a run. Re-check binary presence (`which chromium python3 Xvfb`) before every Pi-browser task, not just after a reboot — the loss is silent. And never patch a remote file with an ssh heredoc — it mangles content; write the file locally and transfer with `cat >` (one real clobber on 2026-10-02).
+
 ## Site notes: 123RF contributor portal (2026-09-22)
 
 - No DataDome/bot wall from the Pi residential IP. Homepage modal "Log in" **triggers reCAPTCHA after submit**; use the dedicated page **`https://www.123rf.com/login/` → "Continue with Email / Username"** instead — same credentials, no CAPTCHA observed.
