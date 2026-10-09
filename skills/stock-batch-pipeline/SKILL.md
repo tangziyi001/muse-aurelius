@@ -118,6 +118,9 @@ to scan `files/adobe-stock-batch-*/`).
 
 ## Pit log (append, don't fork)
 
+- 2026-10-09: Dreamstime watch UN-BLINDED via on-Pi login reseed (session had been dead 10/5-10/8). The 9/23 reseed script still works when the PerimeterX wall is clear: password read from /config/ftp-runner/secrets/dreamstime on the Pi only, single submit, fail-fast on any challenge. KNOWN BUG in that script: STATE_JS checks the literal string "${DREAMSTIME_USER}" instead of the username, so it reported "login FAILED" while the session was actually live (verify with a "My Account / Tangziyi001" probe, not the script's detector). Watch escalation "ask user for re-login" is now moot — reseed first.
+- 2026-10-09: batch-09 submit (20/20): the b05-era "submitted" detection heuristic ("under-review" in post-click URL/body) is BROKEN on the current portal — the edit page stays put after a successful "Submit commercial" click. Ground truth = Unfinished tab count delta (21->9->1) + Under review census via input.changepage pager. Also: review can be <1 hour (14/20 approved same morning, Oct stats 14 accepted / 0 refused / 100% A/R); Unfinished pager may show fewer files per page than expected — page the mapping via changepage input, don't trust one next-click.
+
 - 2026-09-24: download failure used to re-run the paid POST (double-bill).
   Fixed: `generate()` = `request_image_url()` (paid, once) +
   `download_with_retries()` (reuses the returned URL, never re-POSTs).
